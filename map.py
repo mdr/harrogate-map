@@ -41,7 +41,7 @@ STATION_TAGS = {"railway": "station"}
 PLACE_TAGS = {"place": ["city", "town", "village", "hamlet"]}
 PLACE_NAMES = {
     "Ripon", "Ripley", "Spofforth", "Wetherby", "Blubberhouses",
-    "Pateley Bridge", "Grassington", "Farnham", "Conistone",
+    "Pateley Bridge", "Grassington", "Farnham", "Conistone", "Arncliffe",
 }
 
 # Named points of interest. The POI_TAGS filter is broad (peaks, cliffs,
