@@ -10,6 +10,7 @@ import osmnx as ox
 import pandas as pd
 import rasterio
 import requests
+from adjustText import adjust_text
 from matplotlib.colors import LightSource
 from rasterio.merge import merge
 from shapely.geometry import LineString, Point
@@ -62,17 +63,66 @@ POI_NAMES = {
     "Rougemont Carr", "Upper Dunsforth Carrs",
     "Mossdale Caverns", "Kilnsey Park and Trout Farm",
     "Adel Dam Nature Reserve", "Nosterfield Nature Reserve",
+    "Breary Marsh Local Nature Reserve", "Golden Acre Park",
 }
 
 # Suffixes stripped from POI labels at render time (display only — POI_NAMES
 # must still match the canonical OSM name).
-POI_LABEL_SUFFIXES = (" Nature Reserve", " SSSI", " and Trout Farm")
+POI_LABEL_SUFFIXES = (
+    " Local Nature Reserve",  # must precede the shorter " Nature Reserve"
+    " Nature Reserve",
+    " SSSI",
+    " and Trout Farm",
+)
 
 # Hand-placed POIs for features not (yet) in OSM under a queryable name.
 # Each entry: display-name -> (lat, lon).
 MANUAL_POIS = {
     "Bishop Monkton Railway Cutting": (54.09166, -1.52142),
 }
+
+
+def _denude_overlapping(labels, fig, ax):
+    """Find clusters of overlapping label bboxes and only de-overlap those.
+
+    Labels with no neighbours stay at their natural position. Within each
+    cluster, adjustText repels members from each other while treating the
+    non-cluster labels as immovable obstacles."""
+    if not labels:
+        return
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    bboxes = [l.get_window_extent(renderer) for l in labels]
+
+    parent = list(range(len(labels)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(len(labels)):
+        for j in range(i + 1, len(labels)):
+            if bboxes[i].overlaps(bboxes[j]):
+                pi, pj = find(i), find(j)
+                if pi != pj:
+                    parent[pi] = pj
+
+    groups = {}
+    for i in range(len(labels)):
+        groups.setdefault(find(i), []).append(i)
+
+    for member_indices in groups.values():
+        if len(member_indices) < 2:
+            continue
+        cluster = [labels[i] for i in member_indices]
+        others = [labels[i] for i in range(len(labels)) if i not in member_indices]
+        adjust_text(
+            cluster, ax=ax, objects=others,
+            arrowprops=dict(arrowstyle="-", color="#666", lw=0.5, alpha=0.7),
+            expand=(1.2, 1.3),
+        )
 
 
 def _polygons_only(gdf):
@@ -283,6 +333,12 @@ def render(
                                   edgecolor="none"),
                         zorder=6,
                     )
+    # Labels for point markers (stations, places, POIs) — collected so they
+    # can be jointly de-overlapped by adjustText at the end of render. The
+    # area-anchored labels (waterbodies, rivers, NCN routes) stay where they
+    # are because their position carries meaning.
+    placed_labels = []
+
     if not stations.empty:
         pts = stations.copy()
         pts["geometry"] = pts.geometry.representative_point()
@@ -293,11 +349,10 @@ def render(
         for _, row in pts.iterrows():
             name = row.get("name")
             if isinstance(name, str):
-                ax.annotate(
-                    name, (row.geometry.x, row.geometry.y),
-                    xytext=(6, 4), textcoords="offset points",
+                placed_labels.append(ax.text(
+                    row.geometry.x, row.geometry.y, name,
                     fontsize=9, color="#222", zorder=6,
-                )
+                ))
 
     if not places.empty:
         pts = places.copy()
@@ -306,11 +361,10 @@ def render(
         for _, row in pts.iterrows():
             name = row.get("name")
             if isinstance(name, str):
-                ax.annotate(
-                    name, (row.geometry.x, row.geometry.y),
-                    xytext=(8, 5), textcoords="offset points",
+                placed_labels.append(ax.text(
+                    row.geometry.x, row.geometry.y, name,
                     fontsize=13, fontweight="bold", color="#111", zorder=8,
-                )
+                ))
 
     if not pois.empty:
         pts = pois.copy()
@@ -322,15 +376,15 @@ def render(
                 short = name
                 for suffix in POI_LABEL_SUFFIXES:
                     short = short.removesuffix(suffix)
-                ax.annotate(
-                    short, (row.geometry.x, row.geometry.y),
-                    xytext=(8, 5), textcoords="offset points",
+                placed_labels.append(ax.text(
+                    row.geometry.x, row.geometry.y, short,
                     fontsize=11, fontstyle="italic", color="#5b2c6f", zorder=8,
-                )
+                ))
 
     west, south, east, north = BBOX
     ax.set_xlim(west, east)
     ax.set_ylim(south, north)
+    _denude_overlapping(placed_labels, fig, ax)
     ax.set_axis_off()
     ax.margins(0)
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)

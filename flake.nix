@@ -30,6 +30,7 @@
           shapely
           networkx
           matplotlib
+          adjusttext
           ipython
         ]);
       in {
