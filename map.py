@@ -1,6 +1,7 @@
 """Render a static map of roads and rail for an area of interest."""
 import gzip
 import math
+import time
 import urllib.request
 from pathlib import Path
 
@@ -185,12 +186,21 @@ def fetch_ncn(bbox):
         "way(r);"
         "out geom;"
     )
-    r = requests.post(
-        "https://overpass-api.de/api/interpreter",
-        data=query,
-        headers={"User-Agent": "map-experiment/0.1"},
-        timeout=180,
-    )
+    # Overpass rate-limits with 429 + Retry-After when the runner's IP has
+    # been hammered (CI builds in particular). Honour Retry-After if present,
+    # otherwise back off exponentially.
+    for attempt in range(6):
+        r = requests.post(
+            "https://overpass-api.de/api/interpreter",
+            data=query,
+            headers={"User-Agent": "map-experiment/0.1"},
+            timeout=180,
+        )
+        if r.status_code != 429:
+            break
+        wait = int(r.headers.get("Retry-After", 2 ** attempt * 15))
+        print(f"Overpass 429; waiting {wait}s (attempt {attempt + 1}/6)")
+        time.sleep(wait)
     r.raise_for_status()
     elements = r.json().get("elements", [])
 
