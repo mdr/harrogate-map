@@ -1,0 +1,83 @@
+name: Render map and deploy to Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      # Cache Overpass query JSON + SRTM DEM tiles between runs. Files inside
+      # are content-addressed by their query hash / tile coords, so reusing
+      # the cache across map.py changes is safe — new queries just add new
+      # files. We bump the cache via the key suffix when we need a hard reset.
+      - uses: actions/cache@v4
+        with:
+          path: cache
+          key: osm-dem-cache-${{ hashFiles('map.py') }}
+          restore-keys: |
+            osm-dem-cache-
+
+      - name: Render map.png
+        run: nix develop --command python map.py
+
+      - name: Build site directory
+        run: |
+          mkdir -p _site
+          cp map.png _site/
+          cat > _site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>Harrogate area map</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+              body { margin: 0; background: #fafafa; font-family: system-ui, sans-serif; color: #333; }
+              .frame { max-width: 1600px; margin: 0 auto; padding: 1rem; }
+              img { width: 100%; height: auto; display: block; }
+              footer { color: #777; font-size: 0.85rem; padding-top: 0.75rem; }
+              a { color: #2980b9; text-decoration: none; }
+              a:hover { text-decoration: underline; }
+            </style>
+          </head>
+          <body>
+            <div class="frame">
+              <img src="map.png" alt="Static map of the Harrogate area">
+              <footer>
+                Rendered from OpenStreetMap and SRTM data by
+                <a href="https://github.com/mdr/harrogate-map">mdr/harrogate-map</a>.
+              </footer>
+            </div>
+          </body>
+          </html>
+          HTML
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: render
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
