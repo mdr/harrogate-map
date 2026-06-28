@@ -19,7 +19,7 @@ from shapely.geometry import LineString, Point
 # Area of interest as a bounding box (west, south, east, north) in WGS84.
 # Stretched far west to include Grassington (~2.00 W), Pen-y-ghent (~2.25 W),
 # and Ingleborough (~2.40 W); nudged north to fit those Three Peaks summits.
-BBOX = (-2.50, 53.81, -1.20, 54.25)
+BBOX = (-2.50, 53.81, -1.20, 54.35)
 LABEL = "Harrogate area"
 
 OUT = Path("map.png")
@@ -65,6 +65,7 @@ POI_NAMES = {
     "Mossdale Caverns", "Kilnsey Park and Trout Farm",
     "Adel Dam Nature Reserve", "Nosterfield Nature Reserve",
     "Breary Marsh Local Nature Reserve", "Golden Acre Park",
+    "Leyburn Old Glebe Nature Reserve", "Seata Quarry",
 }
 
 # Suffixes stripped from POI labels at render time (display only — POI_NAMES
