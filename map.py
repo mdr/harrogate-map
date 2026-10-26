@@ -89,7 +89,7 @@ MANUAL_POIS = {
 
 # (lat, lon) rendered as a distinctive house-shaped marker. Read from the
 # MAP_HOME_LOCATION env var ("lat,lon") so it stays out of the public repo —
-# set it in the gitignored .envrc.local. Omitted when unset.
+# the dev shell's `render` command fills it from 1Password. Omitted when unset.
 _home = os.environ.get("MAP_HOME_LOCATION")
 HOME_LOCATION = tuple(float(v) for v in _home.split(",")) if _home else None
 

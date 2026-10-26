@@ -13,6 +13,3 @@ __pycache__/
 
 # macOS
 .DS_Store
-
-# Local-only settings (e.g. MAP_HOME_LOCATION)
-.envrc.local
