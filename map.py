@@ -1,6 +1,7 @@
 """Render a static map of roads and rail for an area of interest."""
 import gzip
 import math
+import os
 import time
 import urllib.request
 from pathlib import Path
@@ -13,6 +14,7 @@ import rasterio
 import requests
 from adjustText import adjust_text
 from matplotlib.colors import LightSource
+from matplotlib.path import Path as MplPath
 from rasterio.merge import merge
 from shapely.geometry import LineString, Point
 
@@ -51,9 +53,10 @@ PLACE_NAMES = {
 POI_TAGS = {
     "natural": ["peak", "cliff", "rock", "stone", "wood", "cave_entrance"],
     "landuse": ["forest"],
-    "tourism": ["attraction", "viewpoint", "museum"],
+    "tourism": ["attraction", "viewpoint", "museum", "caravan_site"],
     "historic": True,
     "leisure": ["nature_reserve"],
+    "military": True,
 }
 # Names must match OSM exactly. The full set covers the main Three Peaks /
 # crag landmarks plus a couple of regional natural attractions.
@@ -66,6 +69,7 @@ POI_NAMES = {
     "Adel Dam Nature Reserve", "Nosterfield Nature Reserve",
     "Breary Marsh Local Nature Reserve", "Golden Acre Park",
     "Leyburn Old Glebe Nature Reserve", "Seata Quarry",
+    "Reynard Crag Park", "RAF Menwith Hill", "Hetchell Wood",
 }
 
 # Suffixes stripped from POI labels at render time (display only — POI_NAMES
@@ -82,6 +86,19 @@ POI_LABEL_SUFFIXES = (
 MANUAL_POIS = {
     "Bishop Monkton Railway Cutting": (54.09166, -1.52142),
 }
+
+# (lat, lon) rendered as a distinctive house-shaped marker. Read from the
+# MAP_HOME_LOCATION env var ("lat,lon") so it stays out of the public repo —
+# set it in the gitignored .envrc.local. Omitted when unset.
+_home = os.environ.get("MAP_HOME_LOCATION")
+HOME_LOCATION = tuple(float(v) for v in _home.split(",")) if _home else None
+
+_HOUSE_MARKER = MplPath(
+    [(-1.0, -1.0), (1.0, -1.0), (1.0, 0.5),
+     (0.0, 1.4), (-1.0, 0.5), (-1.0, -1.0)],
+    [MplPath.MOVETO, MplPath.LINETO, MplPath.LINETO,
+     MplPath.LINETO, MplPath.LINETO, MplPath.CLOSEPOLY],
+)
 
 
 def _denude_overlapping(labels, fig, ax):
@@ -187,9 +204,8 @@ def fetch_ncn(bbox):
         "way(r);"
         "out geom;"
     )
-    # Overpass rate-limits with 429 + Retry-After when the runner's IP has
-    # been hammered (CI builds in particular). Honour Retry-After if present,
-    # otherwise back off exponentially.
+    # Overpass returns 429 (rate limit) or 5xx (transient server issue) under
+    # load. Honour Retry-After on 429s, back off exponentially otherwise.
     for attempt in range(6):
         r = requests.post(
             "https://overpass-api.de/api/interpreter",
@@ -197,10 +213,10 @@ def fetch_ncn(bbox):
             headers={"User-Agent": "map-experiment/0.1"},
             timeout=180,
         )
-        if r.status_code != 429:
+        if r.status_code < 500 and r.status_code != 429:
             break
         wait = int(r.headers.get("Retry-After", 2 ** attempt * 15))
-        print(f"Overpass 429; waiting {wait}s (attempt {attempt + 1}/6)")
+        print(f"Overpass {r.status_code}; waiting {wait}s (attempt {attempt + 1}/6)")
         time.sleep(wait)
     r.raise_for_status()
     elements = r.json().get("elements", [])
@@ -247,6 +263,9 @@ def fetch(bbox: tuple[float, float, float, float]):
     pois = ox.features_from_bbox(bbox=bbox, tags=POI_TAGS)
     if "name" in pois.columns:
         pois = pois[pois["name"].isin(POI_NAMES)]
+        # Same landmark can appear more than once (e.g. Simon's Seat is both
+        # a natural=peak node and a natural=cliff way). Keep one per name.
+        pois = pois.drop_duplicates(subset="name", keep="first")
     if MANUAL_POIS:
         manual = gpd.GeoDataFrame(
             {"name": list(MANUAL_POIS.keys())},
@@ -391,6 +410,13 @@ def render(
                     row.geometry.x, row.geometry.y, short,
                     fontsize=11, fontstyle="italic", color="#5b2c6f", zorder=8,
                 ))
+
+    if HOME_LOCATION is not None:
+        home_lat, home_lon = HOME_LOCATION
+        ax.scatter(
+            [home_lon], [home_lat], marker=_HOUSE_MARKER, s=350,
+            facecolor="#3498db", edgecolor="#222", linewidth=1.0, zorder=10,
+        )
 
     west, south, east, north = BBOX
     ax.set_xlim(west, east)
