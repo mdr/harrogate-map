@@ -9,6 +9,7 @@ from pathlib import Path
 import geopandas as gpd
 import numpy as np
 import osmnx as ox
+from osmnx._errors import ResponseStatusCodeError
 import pandas as pd
 import rasterio
 import requests
@@ -244,23 +245,37 @@ def fetch_ncn(bbox):
     return gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326")
 
 
+def _retrying(fn, *args, **kwargs):
+    """Call an osmnx fetch, backing off exponentially when Overpass is at
+    capacity (it surfaces 429/5xx as ResponseStatusCodeError)."""
+    for attempt in range(6):
+        try:
+            return fn(*args, **kwargs)
+        except ResponseStatusCodeError as e:
+            if attempt == 5:
+                raise
+            wait = 2 ** attempt * 15
+            print(f"Overpass error ({str(e).splitlines()[0]}); waiting {wait}s (attempt {attempt + 1}/6)")
+            time.sleep(wait)
+
+
 def fetch(bbox: tuple[float, float, float, float]):
-    roads = ox.graph_from_bbox(bbox=bbox, custom_filter=ROAD_FILTER, simplify=True)
-    rail = ox.features_from_bbox(bbox=bbox, tags=RAIL_TAGS)
-    rivers = ox.features_from_bbox(bbox=bbox, tags=RIVER_TAGS)
+    roads = _retrying(ox.graph_from_bbox, bbox=bbox, custom_filter=ROAD_FILTER, simplify=True)
+    rail = _retrying(ox.features_from_bbox, bbox=bbox, tags=RAIL_TAGS)
+    rivers = _retrying(ox.features_from_bbox, bbox=bbox, tags=RIVER_TAGS)
     ncn = fetch_ncn(bbox)
-    waterbodies = ox.features_from_bbox(bbox=bbox, tags=WATERBODY_TAGS)
-    urban = _polygons_only(ox.features_from_bbox(bbox=bbox, tags=URBAN_TAGS))
-    forest = _polygons_only(ox.features_from_bbox(bbox=bbox, tags=FOREST_TAGS))
-    stations = ox.features_from_bbox(bbox=bbox, tags=STATION_TAGS)
+    waterbodies = _retrying(ox.features_from_bbox, bbox=bbox, tags=WATERBODY_TAGS)
+    urban = _polygons_only(_retrying(ox.features_from_bbox, bbox=bbox, tags=URBAN_TAGS))
+    forest = _polygons_only(_retrying(ox.features_from_bbox, bbox=bbox, tags=FOREST_TAGS))
+    stations = _retrying(ox.features_from_bbox, bbox=bbox, tags=STATION_TAGS)
     # Drop unnamed stations (e.g. theme-park miniature railways tagged as
     # railway=station but without a name/operator).
     if "name" in stations.columns:
         stations = stations[stations["name"].notna()]
-    places = ox.features_from_bbox(bbox=bbox, tags=PLACE_TAGS)
+    places = _retrying(ox.features_from_bbox, bbox=bbox, tags=PLACE_TAGS)
     if "name" in places.columns:
         places = places[places["name"].isin(PLACE_NAMES)]
-    pois = ox.features_from_bbox(bbox=bbox, tags=POI_TAGS)
+    pois = _retrying(ox.features_from_bbox, bbox=bbox, tags=POI_TAGS)
     if "name" in pois.columns:
         pois = pois[pois["name"].isin(POI_NAMES)]
         # Same landmark can appear more than once (e.g. Simon's Seat is both
