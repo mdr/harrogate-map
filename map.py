@@ -70,7 +70,7 @@ POI_NAMES = {
     "Adel Dam Nature Reserve", "Nosterfield Nature Reserve",
     "Breary Marsh Local Nature Reserve", "Golden Acre Park",
     "Leyburn Old Glebe Nature Reserve", "Seata Quarry",
-    "Reynard Crag Park", "RAF Menwith Hill", "Hetchell Wood",
+    "Reynard Crag Park", "RAF Menwith Hill", "Hetchell Wood", "Brimham Rocks",
 }
 
 # Suffixes stripped from POI labels at render time (display only — POI_NAMES
